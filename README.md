@@ -53,7 +53,7 @@ sudo ufw enable
 ```
 
 ### 2. 配置与安装 WireGuard
-将项目中的 `server/` 文件夹上传到服务器的 `/opt/vpn-server` 目录。
+将项目中的 `server/` 文件夹上传到服务器 of `/opt/vpn-server` 目录。
 
 ```bash
 cd /opt/vpn-server
