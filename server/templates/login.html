@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Major VPN - Admin Portal</title>
+    <!-- Modern Notion-like typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #fbfbfa;
+            --card-bg: #ffffff;
+            --border-color: #e3e2e0;
+            --accent-primary: #0079ff;
+            --text-main: #37352f;
+            --text-muted: #787774;
+            --danger: #eb5757;
+            --input-focus: rgba(0, 121, 255, 0.15);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            padding: 20px;
+        }
+
+        .notion-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 36px;
+            box-shadow: 0 1px 3px rgba(15, 15, 15, 0.05), 0 3px 6px rgba(15, 15, 15, 0.02);
+        }
+
+        .logo-header {
+            margin-bottom: 28px;
+            text-align: left;
+        }
+
+        .logo-title {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--accent-primary);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+            font-weight: 800;
+        }
+
+        .logo-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+            text-align: left;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: #fdfdfd;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text-main);
+            font-size: 14px;
+            transition: all 0.15s ease;
+            outline: none;
+        }
+
+        .form-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--input-focus);
+            background: #ffffff;
+        }
+
+        .error-banner {
+            background: rgba(235, 87, 87, 0.06);
+            border: 1px solid rgba(235, 87, 87, 0.2);
+            color: var(--danger);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 18px;
+            text-align: left;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background: var(--accent-primary);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            padding: 11px;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.1s ease;
+            margin-top: 8px;
+        }
+
+        .btn-submit:hover {
+            background: #0066d6;
+        }
+
+        .btn-submit:active {
+            transform: scale(0.98);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="notion-card">
+            <div class="logo-header">
+                <div class="logo-title">
+                    <span class="logo-icon">M</span>
+                    <span>Major VPN</span>
+                </div>
+                <div class="logo-subtitle">Enter credentials to access the admin portal.</div>
+            </div>
+
+            {% if error %}
+            <div class="error-banner">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            <form action="{{ url_for('login') }}" method="POST">
+                <div class="form-group">
+                    <label class="form-label" for="username">Username</label>
+                    <input class="form-input" type="text" id="username" name="username" placeholder="Username" required autofocus autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="password">Password</label>
+                    <input class="form-input" type="password" id="password" name="password" placeholder="Password" required>
+                </div>
+
+                <button type="submit" class="btn-submit">Sign In</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Major VPN - Admin Dashboard</title>
+    <!-- Modern Notion-like typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #fbfbfa;
+            --card-bg: #ffffff;
+            --border-color: #e3e2e0;
+            --accent-primary: #0079ff;
+            --accent-secondary: #2eaadc;
+            --text-main: #37352f;
+            --text-muted: #787774;
+            --success: #0f7b58;
+            --warning: #df8000;
+            --danger: #eb5757;
+            --info: #0079ff;
+            --hover-bg: #f1f1ef;
+            --active-bg: #e8e8e6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding-bottom: 60px;
+        }
+
+        /* Container Layout */
+        .wrapper {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Header Navigation */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 30px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            background: var(--accent-primary);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            color: white;
+            font-size: 18px;
+        }
+
+        .brand-name {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.5px;
+        }
+
+        .user-nav {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .user-avatar {
+            width: 24px;
+            height: 24px;
+            background: var(--hover-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 12px;
+        }
+
+        .btn-logout {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 6px 12px;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background 0.15s ease;
+        }
+
+        .btn-logout:hover {
+            background: var(--hover-bg);
+        }
+
+        /* KPI Cards Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .kpi-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(15, 15, 15, 0.05), 0 3px 6px rgba(15, 15, 15, 0.02);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+        }
+
+        .kpi-total::before { background-color: var(--text-muted); }
+        .kpi-active::before { background-color: var(--accent-primary); }
+        .kpi-banned::before { background-color: var(--danger); }
+        .kpi-expired::before { background-color: var(--warning); }
+
+        .kpi-title {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .kpi-value {
+            font-size: 30px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        /* Main Section Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+
+        @media (min-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 280px 1fr;
+            }
+        }
+
+        /* Left Column: Create Form */
+        .panel-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            height: fit-content;
+            box-shadow: 0 1px 3px rgba(15, 15, 15, 0.05), 0 3px 6px rgba(15, 15, 15, 0.02);
+        }
+
+        .panel-title {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-main);
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .form-input, .form-select {
+            width: 100%;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 10px;
+            color: var(--text-main);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.15s ease;
+        }
+
+        .form-input:focus, .form-select:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(0, 121, 255, 0.15);
+        }
+
+        .btn-primary {
+            width: 100%;
+            background: var(--accent-primary);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            padding: 10px;
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .btn-primary:hover {
+            background: #0066d6;
+        }
+
+        /* Right Column: Table view */
+        .table-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(15, 15, 15, 0.05), 0 3px 6px rgba(15, 15, 15, 0.02);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .table-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .search-bar {
+            position: relative;
+            max-width: 280px;
+            width: 100%;
+        }
+
+        .search-input {
+            width: 100%;
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 10px 8px 30px;
+            color: var(--text-main);
+            font-size: 13px;
+            outline: none;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(0, 121, 255, 0.15);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .filter-tags {
+            display: flex;
+            gap: 6px;
+        }
+
+        .filter-tag {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.15s ease;
+        }
+
+        .filter-tag:hover, .filter-tag.active {
+            background: var(--hover-bg);
+            color: var(--text-main);
+            border-color: #b3b3b1;
+        }
+
+        /* Responsive Table */
+        .table-responsive {
+            overflow-x: auto;
+            width: 100%;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 600;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        td {
+            padding: 12px 14px;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border-color);
+            vertical-align: middle;
+            color: var(--text-main);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: #fafaf9;
+        }
+
+        .key-text {
+            font-family: monospace;
+            font-weight: 600;
+            color: var(--text-main);
+            background: var(--hover-bg);
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+
+        /* Badges - Notion Light tinted style */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: capitalize;
+        }
+
+        .badge-unused {
+            background: #eef2f6;
+            color: #475569;
+        }
+
+        .badge-active {
+            background: rgba(15, 123, 88, 0.08);
+            color: var(--success);
+        }
+
+        .badge-banned {
+            background: rgba(235, 87, 87, 0.08);
+            color: var(--danger);
+        }
+
+        .badge-expired {
+            background: rgba(223, 128, 0, 0.08);
+            color: var(--warning);
+        }
+
+        /* Client Info Formatting */
+        .client-info {
+            font-size: 11px;
+            color: var(--text-muted);
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.5;
+        }
+
+        .client-info strong {
+            color: var(--text-main);
+            font-weight: 500;
+        }
+
+        /* Action Buttons */
+        .actions-cell {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .btn-action {
+            border: 1px solid var(--border-color);
+            background: #ffffff;
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-main);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-action:hover {
+            background: var(--hover-bg);
+        }
+
+        .btn-ban-toggle {
+            color: var(--warning);
+        }
+
+        .btn-ban-toggle.banned {
+            color: var(--success);
+        }
+
+        .btn-unbind {
+            color: var(--accent-primary);
+        }
+
+        .btn-delete {
+            color: var(--danger);
+        }
+
+        /* Toast system */
+        .toast-container {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px 16px;
+            color: var(--text-main);
+            font-size: 13px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(15, 15, 15, 0.08);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slide-in 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            max-width: 320px;
+            transition: all 0.2s ease;
+        }
+
+        .toast.success { border-left: 3px solid var(--success); }
+        .toast.error { border-left: 3px solid var(--danger); }
+        .toast.info { border-left: 3px solid var(--accent-primary); }
+
+        @keyframes slide-in {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="toast-container" id="toast-container"></div>
+
+    <div class="wrapper">
+        <header>
+            <div class="brand">
+                <div class="brand-logo">M</div>
+                <div class="brand-name">Major VPN Dashboard</div>
+            </div>
+            <div class="user-nav">
+                <div class="user-info">
+                    <div class="user-avatar">A</div>
+                    <span>admin</span>
+                </div>
+                <a href="{{ url_for('logout') }}" class="btn-logout">Logout</a>
+            </div>
+        </header>
+
+        <!-- KPI Grid -->
+        <div class="kpi-grid">
+            <div class="kpi-card kpi-total">
+                <div class="kpi-title">Total Keys</div>
+                <div class="kpi-value" id="kpi-total">0</div>
+            </div>
+            <div class="kpi-card kpi-active">
+                <div class="kpi-title">Active Tunnels</div>
+                <div class="kpi-value" id="kpi-active">0</div>
+            </div>
+            <div class="kpi-card kpi-banned">
+                <div class="kpi-title">Banned Keys</div>
+                <div class="kpi-value" id="kpi-banned">0</div>
+            </div>
+            <div class="kpi-card kpi-expired">
+                <div class="kpi-title">Expired Keys</div>
+                <div class="kpi-value" id="kpi-expired">0</div>
+            </div>
+        </div>
+
+        <!-- Main Layout -->
+        <div class="main-grid">
+            <!-- Left panel: Create -->
+            <div class="panel-card">
+                <div class="panel-title">Generate Key</div>
+                <form id="create-key-form">
+                    <div class="form-group">
+                        <label class="form-label" for="custom-key">Key Name (Optional)</label>
+                        <input class="form-input" type="text" id="custom-key" placeholder="Auto-generated if blank" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="duration-type">Duration Type</label>
+                        <select class="form-select" id="duration-type" onchange="adjustDurationPlaceholder()">
+                            <option value="days">Days</option>
+                            <option value="hours">Hours</option>
+                            <option value="minutes">Minutes</option>
+                            <option value="seconds">Seconds</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="duration-val" id="duration-val-label">Value</label>
+                        <input class="form-input" type="number" id="duration-val" value="30" min="1" required>
+                    </div>
+                    <button type="submit" class="btn-primary">Generate</button>
+                </form>
+            </div>
+
+            <!-- Right panel: Listing -->
+            <div class="table-card">
+                <div class="table-header-row">
+                    <div class="search-bar">
+                        <svg class="search-icon" width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                        <input class="search-input" type="text" id="table-search" placeholder="Search keys..." oninput="renderTable()">
+                    </div>
+                    <div class="filter-tags">
+                        <div class="filter-tag active" data-filter="all" onclick="setFilter('all')">All</div>
+                        <div class="filter-tag" data-filter="active" onclick="setFilter('active')">Active</div>
+                        <div class="filter-tag" data-filter="unused" onclick="setFilter('unused')">Unused</div>
+                        <div class="filter-tag" data-filter="banned" onclick="setFilter('banned')">Banned</div>
+                        <div class="filter-tag" data-filter="expired" onclick="setFilter('expired')">Expired</div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Key</th>
+                                <th>Duration</th>
+                                <th>Status</th>
+                                <th>Client Details</th>
+                                <th>Expiration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="keys-table-body">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                    <div id="table-empty-state" class="empty-state" style="display: none;">
+                        No keys match criteria.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allKeys = [];
+        let activeFilter = 'all';
+
+        // Custom toast helper
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            let icon = '🔔';
+            if (type === 'success') icon = '✓';
+            if (type === 'error') icon = '✕';
+            if (type === 'info') icon = 'ℹ';
+
+            toast.innerHTML = `<span><strong>${icon}</strong></span> <span>${message}</span>`;
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-10px)';
+                setTimeout(() => {
+                    toast.remove();
+                }, 200);
+            }, 3000);
+        }
+
+        // Adjust input value based on duration selection
+        function adjustDurationPlaceholder() {
+            const type = document.getElementById('duration-type').value;
+            const input = document.getElementById('duration-val');
+            if (type === 'days') input.value = 30;
+            else if (type === 'hours') input.value = 24;
+            else if (type === 'minutes') input.value = 60;
+            else if (type === 'seconds') input.value = 3600;
+        }
+
+        // Fetch keys from server API
+        async function fetchKeys() {
+            try {
+                const response = await fetch('/api/keys');
+                if (!response.ok) throw new Error('Failed to fetch keys');
+                allKeys = await response.json();
+                updateKPIs();
+                renderTable();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // Update top statistics card counters
+        function updateKPIs() {
+            let total = allKeys.length;
+            let active = allKeys.filter(k => k.status === 'active').length;
+            let banned = allKeys.filter(k => k.status === 'banned').length;
+            let expired = allKeys.filter(k => k.status === 'expired').length;
+
+            document.getElementById('kpi-total').textContent = total;
+            document.getElementById('kpi-active').textContent = active;
+            document.getElementById('kpi-banned').textContent = banned;
+            document.getElementById('kpi-expired').textContent = expired;
+        }
+
+        // Set list filter
+        function setFilter(filter) {
+            activeFilter = filter;
+            document.querySelectorAll('.filter-tag').forEach(tag => {
+                if (tag.getAttribute('data-filter') === filter) {
+                    tag.classList.add('active');
+                } else {
+                    tag.classList.remove('active');
+                }
+            });
+            renderTable();
+        }
+
+        // Render table DOM rows
+        function renderTable() {
+            const tbody = document.getElementById('keys-table-body');
+            const searchVal = document.getElementById('table-search').value.toLowerCase().trim();
+            tbody.innerHTML = '';
+
+            let filtered = allKeys;
+
+            // Apply filter tag
+            if (activeFilter !== 'all') {
+                filtered = filtered.filter(k => k.status === activeFilter);
+            }
+
+            // Apply search bar
+            if (searchVal) {
+                filtered = filtered.filter(k => k.key.toLowerCase().includes(searchVal));
+            }
+
+            if (filtered.length === 0) {
+                document.getElementById('table-empty-state').style.display = 'block';
+                return;
+            } else {
+                document.getElementById('table-empty-state').style.display = 'none';
+            }
+
+            filtered.forEach(k => {
+                const tr = document.createElement('tr');
+                
+                // Duration text formatting
+                let durationText = `${k.activation_days} Days`;
+                if (k.duration_seconds !== null) {
+                    if (k.duration_seconds < 60) {
+                        durationText = `${k.duration_seconds}s`;
+                    } else if (k.duration_seconds < 3600) {
+                        durationText = `${Math.round(k.duration_seconds / 60)}m`;
+                    } else if (k.duration_seconds < 86400) {
+                        durationText = `${Math.round(k.duration_seconds / 3600)}h`;
+                    } else {
+                        durationText = `${Math.round(k.duration_seconds / 86400)}d`;
+                    }
+                }
+
+                // Client Details formatting
+                let clientDetails = `<div class="empty-state" style="padding: 0; text-align: left; font-size:12px;">Unbound</div>`;
+                if (k.device_info) {
+                    clientDetails = `
+                        <div class="client-info">IP: <strong>${k.assigned_ip || 'N/A'}</strong></div>
+                        <div class="client-info" style="font-size:11px;" title="${k.device_info}">Device: <strong>${k.device_info.substring(0, 12)}...</strong></div>
+                        <div class="client-info" style="font-size:11px;" title="${k.client_pubkey}">Pubkey: <strong>${k.client_pubkey ? k.client_pubkey.substring(0, 12) + '...' : 'N/A'}</strong></div>
+                    `;
+                }
+
+                // Status Badge CSS
+                let badgeClass = `badge badge-${k.status}`;
+
+                // Actions cell buttons
+                const banBtnText = k.is_banned === 1 ? 'Unban' : 'Ban';
+                const banBtnClass = k.is_banned === 1 ? 'btn-action btn-ban-toggle banned' : 'btn-action btn-ban-toggle';
+                
+                const unbindBtn = k.device_info 
+                    ? `<button class="btn-action btn-unbind" onclick="unbindDevice(${k.id}, '${k.key}')">Unbind</button>` 
+                    : '';
+
+                tr.innerHTML = `
+                    <td><span class="key-text">${k.key}</span></td>
+                    <td>${durationText}</td>
+                    <td><span class="${badgeClass}">${k.status}</span></td>
+                    <td>${clientDetails}</td>
+                    <td>
+                        <div style="font-size: 12px; font-weight: 500;">${k.expires_at ? k.expires_at : 'Never'}</div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top:2px;">${k.activated_at ? 'Activated: ' + k.activated_at.substring(0,10) : 'Inactive'}</div>
+                    </td>
+                    <td>
+                        <div class="actions-cell">
+                            <button class="${banBtnClass}" onclick="toggleBan(${k.id}, '${k.key}', ${k.is_banned})">${banBtnText}</button>
+                            ${unbindBtn}
+                            <button class="btn-action btn-delete" onclick="deleteKey(${k.id}, '${k.key}')">Delete</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Action: Create Key
+        document.getElementById('create-key-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const keyInput = document.getElementById('custom-key');
+            const typeSelect = document.getElementById('duration-type');
+            const valInput = document.getElementById('duration-val');
+
+            const payload = {
+                key: keyInput.value.trim(),
+                duration_type: typeSelect.value,
+                duration_val: valInput.value
+            };
+
+            try {
+                const response = await fetch('/api/keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const resData = await response.json();
+                if (!response.ok) throw new Error(resData.error || 'Failed to generate key');
+                
+                showToast(`Generated: ${resData.key}`, 'success');
+                keyInput.value = '';
+                fetchKeys();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        // Action: Ban / Unban Key
+        async function toggleBan(id, keyName, isBanned) {
+            const action = isBanned === 1 ? 'unban' : 'ban';
+            if (!confirm(`Are you sure you want to ${action} "${keyName}"?`)) return;
+
+            try {
+                const response = await fetch(`/api/keys/${id}/ban`, { method: 'POST' });
+                const resData = await response.json();
+                if (!response.ok) throw new Error(resData.error || 'Failed to toggle ban');
+
+                const msg = resData.is_banned === 1 ? `Banned "${keyName}" and disconnected client` : `Activated "${keyName}"`;
+                showToast(msg, resData.is_banned === 1 ? 'info' : 'success');
+                fetchKeys();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // Action: Unbind Device Info
+        async function unbindDevice(id, keyName) {
+            if (!confirm(`Unbind device from key "${keyName}"?`)) return;
+
+            try {
+                const response = await fetch(`/api/keys/${id}/unbind`, { method: 'POST' });
+                const resData = await response.json();
+                if (!response.ok) throw new Error(resData.error || 'Failed to unbind');
+
+                showToast(`Unbound device for ${keyName}`, 'success');
+                fetchKeys();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // Action: Delete Key
+        async function deleteKey(id, keyName) {
+            if (!confirm(`Delete key "${keyName}"? This will terminate any active connection.`)) return;
+
+            try {
+                const response = await fetch(`/api/keys/${id}/delete`, { method: 'POST' });
+                const resData = await response.json();
+                if (!response.ok) throw new Error(resData.error || 'Failed to delete');
+
+                showToast(`Deleted key ${keyName}`, 'success');
+                fetchKeys();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        }
+
+        // Initialize and setup polling
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchKeys();
+            // Poll for updates every 10 seconds to keep stats fresh
+            setInterval(fetchKeys, 10000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,403 @@
+import datetime
+import os
+import random
+import string
+import asyncio
+from typing import Optional, List
+from fastapi import FastAPI, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from db import get_db, ActivationKey, init_db, SessionLocal
+from crypto import encrypt_payload
+
+# Initialize FastAPI
+app = FastAPI(title="Commercial VPN Activation Server", version="1.2.0")
+
+async def auto_cleanup_expired_keys_loop():
+    """
+    Background task that periodically scans the database for expired activation keys
+    that are currently connected (have client_pubkey), removes their WireGuard peers,
+    and clears their active lease in the DB.
+    """
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                now = datetime.datetime.utcnow()
+                # Find keys that have expired but still have active WireGuard parameters
+                expired_active_keys = db.query(ActivationKey).filter(
+                    ActivationKey.expires_at.isnot(None),
+                    ActivationKey.expires_at < now,
+                    ActivationKey.client_pubkey.isnot(None)
+                ).all()
+
+                for key_item in expired_active_keys:
+                    pubkey = key_item.client_pubkey
+                    print(f"[AUTO EXPIRE] Key {key_item.key} has expired. Removing client peer {pubkey}...")
+                    
+                    # 1. Remove peer from WireGuard
+                    remove_wg_peer(pubkey)
+                    
+                    # 2. Clear active connection info from DB (freeing IP and public key)
+                    # KEEP device_info, activated_at, expires_at to mark the key as expired and prevent reactivation
+                    key_item.client_pubkey = None
+                    key_item.assigned_ip = None
+                    db.commit()
+                
+                if expired_active_keys:
+                    cleanup_empty_peers()
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"[AUTO EXPIRE ERROR] {e}")
+        
+        await asyncio.sleep(10)
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    asyncio.create_task(auto_cleanup_expired_keys_loop())
+
+# WireGuard Server Configuration Constants (Mocked for local test)
+SERVER_WG_PUBLIC_KEY = "dZ4hy0mxNNooH3wmiFXsVmz9+eOF0lIKDsJTuOpKSXI="
+SERVER_ENDPOINT = "192.168.52.129:51820"  # Localhost endpoint
+
+class ActivationRequest(BaseModel):
+    license_key: str
+    client_pubkey: str
+    device_info: str  # SHA256 hardware fingerprint of client
+
+class HeartbeatRequest(BaseModel):
+    license_key: str
+    device_info: str
+
+class AdminKeyCreate(BaseModel):
+    key: Optional[str] = None
+    activation_days: Optional[int] = 30
+    duration_seconds: Optional[int] = None
+    is_banned: Optional[int] = 0
+
+class AdminKeyUpdate(BaseModel):
+    is_banned: Optional[int] = None
+    activation_days: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    device_info: Optional[str] = None
+    client_pubkey: Optional[str] = None
+    assigned_ip: Optional[str] = None
+    expires_at: Optional[datetime.datetime] = None
+
+class AdminKeyResponse(BaseModel):
+    id: int
+    key: str
+    activation_days: int
+    duration_seconds: Optional[int] = None
+    device_info: Optional[str] = None
+    client_pubkey: Optional[str] = None
+    assigned_ip: Optional[str] = None
+    activated_at: Optional[datetime.datetime] = None
+    expires_at: Optional[datetime.datetime] = None
+    is_banned: int
+
+    class Config:
+        from_attributes = True
+
+import subprocess
+
+def register_wg_peer(pubkey: str, ip: str):
+    """
+    Registers the peer with the WireGuard network interface.
+    On a Linux WireGuard server, this runs:
+    sudo wg set wg0 peer <pubkey> allowed-ips <ip>/32
+    """
+    try:
+        # 真正调用 Linux 系统底层的 wg 命令行工具进行 peer 注册
+        subprocess.run(
+            ["wg", "set", "wg0", "peer", pubkey, "allowed-ips", f"{ip}/32"],
+            check=True
+        )
+        print(f"[WG] Successfully registered peer {pubkey} with IP {ip} on interface wg0")
+    except Exception as e:
+        print(f"[WG ERROR] Failed to register peer: {str(e)}")
+
+def remove_wg_peer(pubkey: str):
+    """
+    Removes the old peer from the WireGuard interface to prevent orphan peers.
+    """
+    try:
+        subprocess.run(
+            ["wg", "set", "wg0", "peer", pubkey, "remove"],
+            check=True
+        )
+        print(f"[WG] Successfully removed old peer: {pubkey}")
+    except Exception as e:
+        print(f"[WG ERROR] Failed to remove old peer: {str(e)}")
+
+def cleanup_empty_peers():
+    """
+    Scans the WireGuard interface for empty peers (allowed IPs is '(none)')
+    and removes them to keep the kernel interface clean.
+    """
+    try:
+        # 运行 wg show wg0 dump 并捕获输出
+        result = subprocess.run(
+            ["wg", "show", "wg0", "dump"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        lines = result.stdout.strip().split("\n")
+        if len(lines) <= 1:
+            return  # 没有 Peer (第一行是接口基础元数据)
+
+        # 遍历所有 peer 条目 (跳过第一行网卡元数据)
+        for line in lines[1:]:
+            parts = line.split("\t")
+            if len(parts) >= 8:
+                pubkey = parts[0]
+                allowed_ips = parts[3]
+                # 如果 Peer 没有任何绑定的 IP 路由，即为失效的空连接，执行移除
+                if allowed_ips == "(none)" or not allowed_ips or allowed_ips.strip() == "-":
+                    print(f"[WG CLEANUP] Removing empty peer with no allowed IPs: {pubkey}")
+                    subprocess.run(
+                        ["wg", "set", "wg0", "peer", pubkey, "remove"],
+                        check=True
+                    )
+    except Exception as e:
+        print(f"[WG CLEANUP ERROR] Failed to clean up empty peers: {str(e)}")
+
+def allocate_ip(db: Session) -> str:
+    """
+    Finds a free IP in the subnet 10.0.0.2 to 10.0.0.254.
+    """
+    active_keys = db.query(ActivationKey).filter(ActivationKey.assigned_ip.isnot(None)).all()
+    assigned_ips = {k.assigned_ip for k in active_keys}
+    
+    for i in range(2, 255):
+        ip = f"10.0.0.{i}"
+        if ip not in assigned_ips:
+            return ip
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="IP address pool is exhausted."
+    )
+
+@app.post("/api/v1/activate")
+def activate(request: ActivationRequest, db: Session = Depends(get_db)):
+    # 1. Look up the license key
+    license_item = db.query(ActivationKey).filter(ActivationKey.key == request.license_key).first()
+    if not license_item:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid activation key."
+        )
+
+    # 1.5 Check if banned
+    if license_item.is_banned == 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This activation key is banned."
+        )
+
+    now = datetime.datetime.utcnow()
+
+    # 2. Check if the key is already activated/bound
+    if license_item.device_info is None:
+        # First activation: Bind the device and assign IP
+        license_item.device_info = request.device_info
+        license_item.client_pubkey = request.client_pubkey
+        license_item.assigned_ip = allocate_ip(db)
+        license_item.activated_at = now
+        if license_item.duration_seconds is not None:
+            license_item.expires_at = now + datetime.timedelta(seconds=license_item.duration_seconds)
+        else:
+            license_item.expires_at = now + datetime.timedelta(days=license_item.activation_days)
+        db.commit()
+        db.refresh(license_item)
+        print(f"[SERVER] Key {license_item.key} activated for first time on device {request.device_info}")
+    else:
+        # Subsequent activation: Check if hardware fingerprint matches
+        if license_item.device_info != request.device_info:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This activation key is already bound to another device."
+            )
+        
+        # Check if expired
+        if license_item.expires_at and now > license_item.expires_at:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This activation key has expired."
+            )
+            
+        # Update public key in case client re-generated keys
+        old_pubkey = license_item.client_pubkey
+        if old_pubkey and old_pubkey != request.client_pubkey:
+            remove_wg_peer(old_pubkey)
+
+        license_item.client_pubkey = request.client_pubkey
+        db.commit()
+        db.refresh(license_item)
+        print(f"[SERVER] Key {license_item.key} verified and re-registered for device {request.device_info}")
+
+    # 3. Synchronize with WireGuard interface
+    register_wg_peer(license_item.client_pubkey, license_item.assigned_ip)
+
+    # 3.5 自动检测并删除内核中无用的空连接 (allowed ips == none)
+    cleanup_empty_peers()
+
+    # 4. Prepare the configuration payload
+    config_payload = {
+        "server_pubkey": SERVER_WG_PUBLIC_KEY,
+        "endpoint": SERVER_ENDPOINT,
+        "client_ip": f"{license_item.assigned_ip}/32",
+        "dns": ["223.5.5.5", "119.29.29.29"],
+        "expires_at": int(license_item.expires_at.replace(tzinfo=datetime.timezone.utc).timestamp()) if license_item.expires_at else 0
+    }
+
+    # 5. Encrypt payload using the activation key as the source key
+    try:
+        encrypted_result = encrypt_payload(config_payload, request.license_key)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Encryption error: {str(e)}"
+        )
+
+    return {
+        "status": "success",
+        "nonce": encrypted_result["nonce"],
+        "ciphertext": encrypted_result["ciphertext"]
+    }
+
+@app.get("/api/v1/status")
+def server_status():
+    return {"status": "online", "message": "VPN API activation server is ready."}
+
+@app.post("/api/v1/heartbeat")
+def heartbeat(request: HeartbeatRequest, db: Session = Depends(get_db)):
+    key_item = db.query(ActivationKey).filter(ActivationKey.key == request.license_key).first()
+    if not key_item:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid activation key."
+        )
+    
+    if key_item.is_banned == 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This activation key is banned."
+        )
+        
+    if key_item.device_info != request.device_info:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hardware fingerprint mismatch."
+        )
+        
+    now = datetime.datetime.utcnow()
+    if key_item.expires_at and now > key_item.expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This activation key has expired."
+        )
+        
+    return {"status": "ok", "message": "Heartbeat active."}
+
+
+# ==============================================================================
+# Admin CRUD Endpoints
+# ==============================================================================
+
+def generate_random_key() -> str:
+    """Generates a readable key like KEY-ABCD-EFGH-IJKL-MNOP"""
+    segments = []
+    for _ in range(4):
+        seg = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        segments.append(seg)
+    return "KEY-" + "-".join(segments)
+
+@app.get("/api/v1/admin/keys", response_model=List[AdminKeyResponse])
+def admin_get_all_keys(db: Session = Depends(get_db)):
+    return db.query(ActivationKey).all()
+
+@app.get("/api/v1/admin/keys/{key_id}", response_model=AdminKeyResponse)
+def admin_get_key(key_id: int, db: Session = Depends(get_db)):
+    key_item = db.query(ActivationKey).filter(ActivationKey.id == key_id).first()
+    if not key_item:
+        raise HTTPException(status_code=404, detail="Key not found.")
+    return key_item
+
+@app.post("/api/v1/admin/keys", response_model=AdminKeyResponse, status_code=status.HTTP_201_CREATED)
+def admin_create_key(payload: AdminKeyCreate, db: Session = Depends(get_db)):
+    key_str = payload.key
+    if key_str:
+        existing = db.query(ActivationKey).filter(ActivationKey.key == key_str).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Key already exists.")
+    else:
+        while True:
+            key_str = generate_random_key()
+            existing = db.query(ActivationKey).filter(ActivationKey.key == key_str).first()
+            if not existing:
+                break
+    
+    days = payload.activation_days
+    if days is None:
+        if payload.duration_seconds is not None:
+            days = max(1, int(payload.duration_seconds / 86400))
+        else:
+            days = 30
+
+    new_key = ActivationKey(
+        key=key_str,
+        activation_days=days,
+        duration_seconds=payload.duration_seconds,
+        is_banned=payload.is_banned or 0
+    )
+    db.add(new_key)
+    db.commit()
+    db.refresh(new_key)
+    return new_key
+
+@app.put("/api/v1/admin/keys/{key_id}", response_model=AdminKeyResponse)
+def admin_update_key(key_id: int, payload: AdminKeyUpdate, db: Session = Depends(get_db)):
+    key_item = db.query(ActivationKey).filter(ActivationKey.id == key_id).first()
+    if not key_item:
+        raise HTTPException(status_code=404, detail="Key not found.")
+    
+    update_data = payload.model_dump(exclude_unset=True)
+    
+    going_to_ban = False
+    if "is_banned" in update_data and update_data["is_banned"] == 1 and key_item.is_banned != 1:
+        going_to_ban = True
+
+    old_pubkey = key_item.client_pubkey
+
+    for field, value in update_data.items():
+        setattr(key_item, field, value)
+
+    db.commit()
+    db.refresh(key_item)
+
+    # Disconnect client immediately if banned
+    if (going_to_ban or (key_item.is_banned == 1)) and old_pubkey:
+        remove_wg_peer(old_pubkey)
+        cleanup_empty_peers()
+
+    return key_item
+
+@app.delete("/api/v1/admin/keys/{key_id}")
+def admin_delete_key(key_id: int, db: Session = Depends(get_db)):
+    key_item = db.query(ActivationKey).filter(ActivationKey.id == key_id).first()
+    if not key_item:
+        raise HTTPException(status_code=404, detail="Key not found.")
+    
+    # If the key has an active peer connection, remove it first
+    if key_item.client_pubkey:
+        remove_wg_peer(key_item.client_pubkey)
+        cleanup_empty_peers()
+
+    db.delete(key_item)
+    db.commit()
+    return {"status": "success", "message": f"Activation key with ID {key_id} has been deleted."}
