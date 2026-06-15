@@ -1,16 +1,9 @@
-# 商业版 WireGuard 激活、控制与 Web 管理系统部署指南
-
-本项目是一套完整的商业级虚拟专用网（VPN）连接管理系统，包含：
-1. **Rust 客户端 (Windows)**：内存解密并直接加载 WireGuard 隧道至 Wintun 网卡，不在本地留存敏感配置文件，绑定硬件指纹防止一码多用。
-2. **FastAPI 服务端 (Ubuntu)**：处理客户端的安全激活验证、动态 IP 分配以及与内核级 WireGuard 网卡 (`wg0`) 的实时同步注册。
-3. **Flask Web 管理后台 (Ubuntu)**：现代 Notion 风格设计，内置管理员账号，支持可视化增删查改激活码、自定义激活时长（精确到秒）以及一键封禁并强制下线客户端。
-
----
+# Major README.md
 
 ## 目录结构
 
 ```text
-E:/major/
+major/
 ├── README.md                 # 完整部署指南文档
 ├── server/                   # 服务端代码 (Python)
 │   ├── db.py                 # 数据库模型与自动表结构迁移
@@ -184,10 +177,7 @@ sudo systemctl status vpn-api.service vpn-web.service
 
 ## 第三部分：Web 后台管理员操作指南
 
-网页端运行于 `http://<您的服务器IP>:8080`，内置管理员凭证如下：
-- **Username**：`admin`
-- **Password**：`aasdff12`
-
+网页端运行于 `http://<您的服务器IP>:8080`
 ### 常见操作说明
 
 #### 1. 生成激活码
