@@ -1,44 +1,36 @@
 import base64
 import json
 import os
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.serialization import load_der_public_key
+from cryptography.hazmat.primitives.asymmetric import padding
 
-# Static salt used for key derivation. Must match the client.
-STATIC_SALT = b"commercial_vpn_static_salt_value_12345"
+def xor_crypt(data: bytes, key: bytes) -> bytes:
+    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
 
-def derive_key(license_key: str) -> bytes:
+def encrypt_payload(data: dict, rsa_pubkey_b64: str) -> dict:
     """
-    Derive a 256-bit AES key from the user's license key using PBKDF2.
-    Using 10,000 iterations for responsive authentication.
+    Encrypts a JSON dictionary payload using XOR with a random key,
+    and encrypts the XOR key using the client's RSA public key.
     """
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=STATIC_SALT,
-        iterations=10000,
+    # 1. Generate a random 32-byte XOR key
+    xor_key = os.urandom(32)
+    
+    # 2. Encrypt config using XOR
+    payload_bytes = json.dumps(data).encode('utf-8')
+    ciphertext_bytes = xor_crypt(payload_bytes, xor_key)
+    ciphertext_b64 = base64.b64encode(ciphertext_bytes).decode('utf-8')
+    
+    # 3. Encrypt XOR key using RSA public key
+    rsa_pubkey_bytes = base64.b64decode(rsa_pubkey_b64)
+    public_key = load_der_public_key(rsa_pubkey_bytes)
+    
+    encrypted_xor_key = public_key.encrypt(
+        xor_key,
+        padding.PKCS1v15()
     )
-    return kdf.derive(license_key.encode("utf-8"))
-
-def encrypt_payload(data: dict, license_key: str) -> dict:
-    """
-    Encrypts a JSON dictionary payload using AES-256-GCM.
-    Returns base64 encoded nonce and ciphertext (which contains the 16-byte auth tag at the end).
-    """
-    key = derive_key(license_key)
-    aesgcm = AESGCM(key)
-    
-    # Generate a random 12-byte nonce
-    nonce = os.urandom(12)
-    
-    # Serialize dict to JSON string and encode as bytes
-    json_bytes = json.dumps(data).encode("utf-8")
-    
-    # Encrypt (returns ciphertext + 16-byte tag)
-    ciphertext_with_tag = aesgcm.encrypt(nonce, json_bytes, None)
+    nonce_b64 = base64.b64encode(encrypted_xor_key).decode('utf-8')
     
     return {
-        "nonce": base64.b64encode(nonce).decode("utf-8"),
-        "ciphertext": base64.b64encode(ciphertext_with_tag).decode("utf-8")
+        "nonce": nonce_b64,
+        "ciphertext": ciphertext_b64
     }

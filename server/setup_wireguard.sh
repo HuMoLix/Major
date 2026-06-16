@@ -16,27 +16,49 @@ echo "    开始自动安装和配置 WireGuard 服务端..."
 echo "=================================================="
 
 # 1. 自动识别操作系统并安装 WireGuard
-if [ -f /etc/os-release ]; then
+if [ -f /etc/redhat-release ]; then
+    if grep -q "release 7" /etc/redhat-release; then
+        OS="centos7"
+    else
+        OS="rhel"
+    fi
+elif [ -f /etc/os-release ]; then
     . /etc/os-release
-    OS=$ID
+    if [ "$ID" = "ubuntu" ] || [ "$ID" = "debian" ]; then
+        OS="ubuntu"
+    elif [ "$ID" = "centos" ] && [ "$VERSION_ID" = "7" ]; then
+        OS="centos7"
+    else
+        OS=$ID
+    fi
 else
     echo "错误: 无法识别的操作系统类型。"
     exit 1
 fi
 
-echo "[1/6] 正在安装 WireGuard 依赖包 (系统类型: $OS)..."
+echo "[1/6] 检测到操作系统为: $OS，正在开始自动安装..."
 case "$OS" in
-    ubuntu|debian)
+    ubuntu)
+        echo ">>> 执行 Ubuntu/Debian 自动安装流程..."
         apt-get update -y
         apt-get install -y wireguard iptables uuid-runtime
         ;;
+    centos7)
+        echo ">>> 执行 CentOS 7 自动安装流程 (正在配置 EPEL 与 ELRepo 内核源)..."
+        yum install -y epel-release
+        rpm --import https://www.elrepo.org/RPM-GPG-KEY-elrepo.org
+        yum install -y https://www.elrepo.org/elrepo-release-7.el7.elrepo.noarch.rpm
+        yum install -y kmod-wireguard wireguard-tools iptables uuid-runtime
+        modprobe wireguard
+        ;;
     centos|rhel|rocky|almalinux)
-        # 启用 EPEL 仓库
+        echo ">>> 执行 CentOS 8 / RHEL 新版操作系统自动安装流程..."
         yum install -y epel-release elrepo-release
         yum install -y kmod-wireguard wireguard-tools iptables uuid-runtime
+        modprobe wireguard
         ;;
     *)
-        echo "错误: 不支持的操作系统 ($OS)。请手动安装。"
+        echo "错误: 不支持的系统类型 ($OS)。请手动安装。"
         exit 1
         ;;
 esac
@@ -59,9 +81,14 @@ set_sysctl() {
 # 开启 IP 转发
 set_sysctl "net.ipv4.ip_forward" "1"
 
-# 启用 BBR 拥塞控制算法 (对于高延迟/丢包链路速度提升极为显著)
-set_sysctl "net.core.default_qdisc" "fq"
-set_sysctl "net.ipv4.tcp_congestion_control" "bbr"
+# 检查内核是否支持 BBR 并有条件地配置
+if modprobe tcp_bbr >/dev/null 2>&1; then
+    set_sysctl "net.core.default_qdisc" "fq"
+    set_sysctl "net.ipv4.tcp_congestion_control" "bbr"
+    echo "内核支持并已启用 BBR 拥塞控制算法。"
+else
+    echo "警告: 当前内核版本不支持 BBR，已跳过 BBR 调优。"
+fi
 
 # 调大系统网络读写缓冲区限制，支持大窗口高带宽数据吞吐
 set_sysctl "net.core.rmem_max" "16777216"

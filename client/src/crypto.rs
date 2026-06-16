@@ -1,36 +1,30 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use pbkdf2::pbkdf2;
-use sha2::Sha256;
-use hmac::Hmac;
-use aes_gcm::{Aes256Gcm, Key, Nonce, KeyInit};
-use aes_gcm::aead::Aead;
-
-const STATIC_SALT: &[u8] = b"commercial_vpn_static_salt_value_12345";
 
 pub fn decrypt_payload(
-    nonce_b64: &str,
-    ciphertext_b64: &str,
-    license_key: &str,
+    nonce_b64: &str,      // RSA-encrypted XOR key
+    ciphertext_b64: &str, // XOR-encrypted config
+    private_key: &rsa::RsaPrivateKey,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let nonce_bytes = BASE64.decode(nonce_b64)?;
+    let encrypted_xor_key = BASE64.decode(nonce_b64)?;
     let ciphertext_bytes = BASE64.decode(ciphertext_b64)?;
 
-    let mut derived_key = [0u8; 32];
-    pbkdf2::<Hmac<Sha256>>(
-        license_key.as_bytes(),
-        STATIC_SALT,
-        10000,
-        &mut derived_key,
-    )?;
+    // 1. Decrypt XOR key using RSA private key
+    use rsa::Pkcs1v15Encrypt;
+    let xor_key = private_key.decrypt(Pkcs1v15Encrypt, &encrypted_xor_key)
+        .map_err(|e| format!("RSA decryption failed: {:?}", e))?;
 
-    let key = Key::<Aes256Gcm>::from_slice(&derived_key);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    
-    let plaintext_bytes = cipher
-        .decrypt(nonce, ciphertext_bytes.as_slice())
-        .map_err(|e| format!("Decryption failed: {:?}", e))?;
-
+    // 2. Decrypt ciphertext using XOR with the key
+    let plaintext_bytes = xor_crypt(&ciphertext_bytes, &xor_key);
     let plaintext = String::from_utf8(plaintext_bytes)?;
     Ok(plaintext)
+}
+
+fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
+    if key.is_empty() {
+        return data.to_vec();
+    }
+    data.iter()
+        .enumerate()
+        .map(|(i, &b)| b ^ key[i % key.len()])
+        .collect()
 }

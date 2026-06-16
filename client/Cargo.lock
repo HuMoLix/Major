@@ -243,6 +243,7 @@ dependencies = [
  "chrono",
  "colored",
  "hmac",
+ "ipnet",
  "libc",
  "pbkdf2",
  "rand",
@@ -254,6 +255,7 @@ dependencies = [
  "socket2 0.5.10",
  "tokio",
  "wintun",
+ "wireguard-nt",
  "x25519-dalek",
 ]
 
@@ -2149,6 +2151,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "widestring"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c168940144dd21fd8046987c16a46a33d5fc84eec29ef9dcddc2ac9e31526b7c"
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2270,6 +2278,15 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
+dependencies = [
+ "windows-targets",
+]
+
+[[package]]
+name = "windows-sys"
 version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
@@ -2352,6 +2369,22 @@ dependencies = [
  "log",
  "thiserror",
  "windows",
+]
+
+[[package]]
+name = "wireguard-nt"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22b4dbcc6c93786cf22e420ef96e8976bfb92a455070282302b74de5848191f4"
+dependencies = [
+ "bitflags 2.13.0",
+ "getrandom 0.2.17",
+ "ipnet",
+ "libloading",
+ "log",
+ "thiserror",
+ "widestring",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

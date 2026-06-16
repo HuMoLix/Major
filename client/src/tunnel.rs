@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use crate::config::DecryptedConfig;
 use colored::Colorize;
 
 #[cfg(target_os = "windows")]
-use wintun::Adapter;
+use wireguard_nt::Adapter;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::io::FromRawFd;
@@ -16,53 +17,6 @@ use std::os::unix::io::FromRawFd;
 // ==============================================================================
 // Windows Wintun Setup & Configurations
 // ==============================================================================
-
-#[cfg(target_os = "windows")]
-fn configure_wintun_adapter(adapter_name: &str, client_ip: &str, dns: &str) -> io::Result<()> {
-    let clean_ip = client_ip.split('/').next().unwrap_or(client_ip);
-    
-    let status = std::process::Command::new("netsh")
-        .args(&[
-            "interface", "ipv4", "set", "address",
-            &format!("name={}", adapter_name),
-            "static", clean_ip, "255.255.255.0"
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
-    if !status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "netsh IP configuration failed"));
-    }
-
-    let status_dns = std::process::Command::new("netsh")
-        .args(&[
-            "interface", "ipv4", "set", "dnsservers",
-            &format!("name={}", adapter_name),
-            "static", dns, "primary", "validate=no"
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
-    if !status_dns.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "netsh DNS configuration failed"));
-    }
-
-    let status_mtu = std::process::Command::new("netsh")
-        .args(&[
-            "interface", "ipv4", "set", "subinterface",
-            adapter_name,
-            "mtu=1420",
-            "store=active"
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
-    if !status_mtu.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "netsh MTU configuration failed"));
-    }
-
-    Ok(())
-}
 
 #[cfg(target_os = "windows")]
 pub async fn start_wireguard_tunnel(
@@ -75,138 +29,55 @@ pub async fn start_wireguard_tunnel(
     let server_pubkey_bytes = BASE64.decode(&config.server_pubkey)?;
     let server_pubkey_arr: [u8; 32] = server_pubkey_bytes.try_into()
         .map_err(|_| "Invalid Server Public Key length")?;
-    let server_public_key = PublicKey::from(server_pubkey_arr);
     
     let server_endpoint: SocketAddr = config.endpoint.parse()?;
     let dns_ip = config.dns.first().map(|s| s.as_str()).unwrap_or("223.5.5.5");
 
-    let wintun = unsafe { wintun::load() }?;
-    let adapter = Adapter::create(&wintun, "CommercialVPN", "CommercialWG", None)?;
-    
-    configure_wintun_adapter("CommercialVPN", &config.client_ip, dns_ip)?;
-
-    // Give TCP/IP stack time to bind IP and DAD to complete
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-    let tunn = Tunn::new(
-        client_private_key,
-        server_public_key,
-        None,
-        None,
-        1,
-        None,
-    ).map_err(|e| format!("Boringtun Tunn creation failed: {}", e))?;
-    
-    let tunn = Arc::new(std::sync::Mutex::new(tunn));
-    let session = Arc::new(adapter.start_session(wintun::MAX_RING_CAPACITY)?);
-    
-    let domain = match server_endpoint {
-        SocketAddr::V4(_) => socket2::Domain::IPV4,
-        SocketAddr::V6(_) => socket2::Domain::IPV6,
+    let wireguard = unsafe { wireguard_nt::load() }?;
+    let adapter = match wireguard_nt::Adapter::open(&wireguard, "CommercialWG") {
+        Ok(a) => a,
+        Err(_) => {
+            wireguard_nt::Adapter::create(&wireguard, "CommercialVPN", "CommercialWG", None)?
+        }
     };
-    let raw_socket = socket2::Socket::new(domain, socket2::Type::DGRAM, None)?;
-    raw_socket.set_send_buffer_size(2 * 1024 * 1024)?;
-    raw_socket.set_recv_buffer_size(2 * 1024 * 1024)?;
     
-    let bind_addr = match server_endpoint {
-        SocketAddr::V4(_) => "0.0.0.0:0".parse::<SocketAddr>()?,
-        SocketAddr::V6(_) => "[::]:0".parse::<SocketAddr>()?,
+    let client_private_bytes: [u8; 32] = client_private_key.to_bytes();
+    let client_ipnet: ipnet::IpNet = config.client_ip.parse()?;
+    
+    let allowed_ips = vec![
+        "0.0.0.0/0".parse::<ipnet::IpNet>()?,
+    ];
+
+    let interface = wireguard_nt::SetInterface {
+        listen_port: None,
+        public_key: None,
+        private_key: Some(client_private_bytes),
+        peers: vec![wireguard_nt::SetPeer {
+            public_key: Some(server_pubkey_arr),
+            preshared_key: None,
+            keep_alive: Some(25),
+            endpoint: server_endpoint,
+            allowed_ips,
+        }],
     };
-    raw_socket.bind(&bind_addr.into())?;
-    let udp_socket: std::net::UdpSocket = raw_socket.into();
-    udp_socket.connect(server_endpoint)?;
 
-    let adapter_index = adapter.get_adapter_index()?;
-    let local_ip = udp_socket.local_addr()?.ip().to_string();
-    let server_ip = server_endpoint.ip().to_string();
-    let clean_client_ip = config.client_ip.split('/').next().unwrap_or(&config.client_ip).to_string();
+    adapter.set_config(&interface)?;
+    adapter.set_default_route(&[client_ipnet], &interface)?;
+    adapter.up()?;
 
-    let _ = std::process::Command::new("route")
-        .args(&["add", &server_ip, &local_ip])
+    // Configure DNS via netsh
+    let _ = std::process::Command::new("netsh")
+        .args(&[
+            "interface", "ipv4", "set", "dnsservers",
+            "name=CommercialWG",
+            "static", dns_ip, "primary", "validate=no"
+        ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
 
-    let _ = std::process::Command::new("route")
-        .args(&["add", "0.0.0.0", "mask", "0.0.0.0", &clean_client_ip, "metric", "1", "if", &adapter_index.to_string()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    // Loop A: TUN -> Network
-    let session_read = session.clone();
-    let udp_send = udp_socket.try_clone()?;
-    let tunn_encap = tunn.clone();
-    std::thread::spawn(move || {
-        let mut udp_buf = [0u8; 2048];
-        loop {
-            match session_read.receive_blocking() {
-                Ok(packet) => {
-                    let ip_packet = packet.bytes();
-                    let mut tunn = tunn_encap.lock().unwrap();
-                    match tunn.encapsulate(ip_packet, &mut udp_buf) {
-                        TunnResult::WriteToNetwork(bytes) => {
-                            let _ = udp_send.send(bytes);
-                        }
-                        _ => {}
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    // Loop B: Network -> TUN
-    let session_write = session.clone();
-    let udp_recv = udp_socket.try_clone()?;
-    let tunn_decap = tunn.clone();
-    std::thread::spawn(move || {
-        let mut udp_buf = [0u8; 2048];
-        let mut ip_buf = [0u8; 2048];
-        loop {
-            match udp_recv.recv(&mut udp_buf) {
-                Ok(len) => {
-                    let packet = &udp_buf[..len];
-                    let mut tunn = tunn_decap.lock().unwrap();
-                    match tunn.decapsulate(None, packet, &mut ip_buf) {
-                        TunnResult::WriteToTunnelV4(bytes, _) | TunnResult::WriteToTunnelV6(bytes, _) => {
-                            if let Ok(mut win_packet) = session_write.allocate_send_packet(bytes.len() as u16) {
-                                win_packet.bytes_mut().copy_from_slice(bytes);
-                                session_write.send_packet(win_packet);
-                            }
-                        }
-                        TunnResult::WriteToNetwork(bytes) => {
-                            let _ = udp_recv.send(bytes);
-                        }
-                        _ => {}
-                    }
-                }
-                Err(_) => {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-            }
-        }
-    });
-
-    // Loop C: Timers
-    let udp_timer_send = udp_socket.try_clone()?;
-    let tunn_timer = tunn.clone();
-    tokio::spawn(async move {
-        let mut timer_buf = [0u8; 2048];
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            let mut tunn = tunn_timer.lock().unwrap();
-            match tunn.update_timers(&mut timer_buf) {
-                TunnResult::WriteToNetwork(bytes) => {
-                    let _ = udp_timer_send.send(bytes);
-                }
-                _ => {}
-            }
-        }
-    });
-
-    println!("{}", "[+] VPN Connected successfully!".green());
-    println!("{}", "[*] Tunnel forwarding is running in the background. Press Ctrl+C to disconnect...".white());
+    println!("{}", "[+] VPN Connected successfully (Kernel Mode: WireGuardNT)!".green());
+    println!("{}", "[*] Tunnel is running in the background in the Windows Kernel. Press Ctrl+C to disconnect...".white());
 
     let (exit_tx, mut exit_rx) = tokio::sync::mpsc::channel::<()>(1);
     let countdown_exit_tx = exit_tx.clone();
@@ -278,18 +149,9 @@ pub async fn start_wireguard_tunnel(
     println!(); // Print newline to move past the carriage-return line
 
     println!("{}", "[*] Disconnecting and restoring system routing table...".white());
-    let _ = session.shutdown();
-
-    let _ = std::process::Command::new("route")
-        .args(&["delete", &server_ip])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    let _ = std::process::Command::new("route")
-        .args(&["delete", "0.0.0.0", "mask", "0.0.0.0", &clean_client_ip, "if", &adapter_index.to_string()])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    
+    // Explicitly shut down adapter before dropping it
+    let _ = adapter.down();
 
     println!("{}", "[+] VPN Disconnected. Routing restored.".green());
     Ok(())
@@ -474,7 +336,7 @@ pub async fn start_wireguard_tunnel(
     client_private_key: StaticSecret,
     license_key: String,
     device_info: String,
-    server_ip: String,
+    _server_ip: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server_pubkey_bytes = BASE64.decode(&config.server_pubkey)?;
     let server_pubkey_arr: [u8; 32] = server_pubkey_bytes.try_into()

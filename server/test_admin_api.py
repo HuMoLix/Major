@@ -60,17 +60,43 @@ def test_admin_flow():
         print(f"Successfully retrieved key by ID {key_id}.")
 
         print("\n--- 3. Testing Key Activation and Custom Duration ---")
+        # Generate test RSA keypair
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        from cryptography.hazmat.primitives.asymmetric import padding
+        import base64
+        import json
+        from crypto import xor_crypt
+
+        test_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        test_public_key = test_private_key.public_key()
+        der_bytes = test_public_key.public_bytes(encoding=Encoding.DER, format=PublicFormat.SubjectPublicKeyInfo)
+        rsa_pubkey_b64 = base64.b64encode(der_bytes).decode('utf-8')
+
         # 3.1 Activate the custom key (3600 seconds)
         client_pubkey = "35667cda01d0b4aa4fe9e3d1164cf2fd7af0c72b8243ccd275781cfe502ed9b4"
         device_info = "TEST-DEVICE-HARDWARE-ID"
         req = ActivationRequest(
             license_key=key_custom.key,
             client_pubkey=client_pubkey,
+            rsa_pubkey=rsa_pubkey_b64,
             device_info=device_info
         )
         # Call activate function
-        activate(request=req, db=db)
+        resp = activate(request=req, db=db)
         print("Activation successful for custom 1-hour key.")
+
+        # Verify decryption works
+        encrypted_xor_key = base64.b64decode(resp["nonce"])
+        ciphertext_bytes = base64.b64decode(resp["ciphertext"])
+        decrypted_xor_key = test_private_key.decrypt(
+            encrypted_xor_key,
+            padding.PKCS1v15()
+        )
+        decrypted_payload_bytes = xor_crypt(ciphertext_bytes, decrypted_xor_key)
+        decrypted_config = json.loads(decrypted_payload_bytes.decode('utf-8'))
+        print(f"Successfully decrypted config in test: {decrypted_config}")
+        assert decrypted_config["server_pubkey"] == "+qRSnn9GcEOELTL2CQPwf1Y9GMYUjBHQ7kqcfW/hl3o="
 
         # 3.2 Verify expiration date in DB is 1 hour (3600s) from activation time
         # Refresh the key from DB

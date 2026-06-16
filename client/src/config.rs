@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct ActivationRequest {
     pub license_key: String,
     pub client_pubkey: String,
+    pub rsa_pubkey: String,
     pub device_info: String,
 }
 

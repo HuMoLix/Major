@@ -60,12 +60,13 @@ async def startup_event():
     asyncio.create_task(auto_cleanup_expired_keys_loop())
 
 # WireGuard Server Configuration Constants (Mocked for local test)
-SERVER_WG_PUBLIC_KEY = "dZ4hy0mxNNooH3wmiFXsVmz9+eOF0lIKDsJTuOpKSXI="
+SERVER_WG_PUBLIC_KEY = "+qRSnn9GcEOELTL2CQPwf1Y9GMYUjBHQ7kqcfW/hl3o="
 SERVER_ENDPOINT = "192.168.52.129:51820"  # Localhost endpoint
 
 class ActivationRequest(BaseModel):
     license_key: str
     client_pubkey: str
+    rsa_pubkey: str  # Client RSA public key in DER base64
     device_info: str  # SHA256 hardware fingerprint of client
 
 class HeartbeatRequest(BaseModel):
@@ -255,9 +256,9 @@ def activate(request: ActivationRequest, db: Session = Depends(get_db)):
         "expires_at": int(license_item.expires_at.replace(tzinfo=datetime.timezone.utc).timestamp()) if license_item.expires_at else 0
     }
 
-    # 5. Encrypt payload using the activation key as the source key
+    # 5. Encrypt payload using the client's RSA public key (XOR + RSA hybrid encryption)
     try:
-        encrypted_result = encrypt_payload(config_payload, request.license_key)
+        encrypted_result = encrypt_payload(config_payload, request.rsa_pubkey)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
