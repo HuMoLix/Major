@@ -10,7 +10,9 @@ from main import (
     AdminKeyUpdate,
     ActivationRequest,
     heartbeat,
-    HeartbeatRequest
+    HeartbeatRequest,
+    generate_debug_code,
+    verify_debug_code
 )
 from db import SessionLocal, ActivationKey
 
@@ -147,6 +149,16 @@ def test_admin_flow():
         except HTTPException as ex:
             assert ex.status_code == 404
             print("Key is no longer retrievable.")
+        print("\n--- 6. Testing Debug Code Generation and Verification ---")
+        import time
+        current_minute = int(time.time() // 60)
+        code = generate_debug_code(current_minute)
+        print(f"Generated debug code: {code}")
+        assert len(code) == 6
+        assert verify_debug_code(code) is True
+        assert verify_debug_code(generate_debug_code(current_minute - 1)) is True
+        assert verify_debug_code("INVALID") is False
+        print("Debug code generation and verification tests passed.")
 
         print("\nALL ADMIN API AND CUSTOM DURATION TESTS PASSED!")
 

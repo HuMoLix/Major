@@ -2,7 +2,7 @@ import datetime
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from db import SessionLocal, ActivationKey, init_db
-from main import remove_wg_peer, cleanup_empty_peers, generate_random_key
+from main import remove_wg_peer, register_wg_peer, cleanup_empty_peers, generate_random_key, generate_debug_code
 
 app = Flask(__name__)
 app.secret_key = "major_vpn_secret_key_secure_and_private"
@@ -32,7 +32,19 @@ def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-        if username == ADMIN_USER and password == ADMIN_PASS:
+        
+        # Dynamically read current admin password
+        current_admin_pass = ADMIN_PASS
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            pass_file = os.path.join(base_dir, "admin_password.txt")
+            if os.path.exists(pass_file):
+                with open(pass_file, "r") as f:
+                    current_admin_pass = f.read().strip()
+        except Exception:
+            pass
+
+        if username == ADMIN_USER and password == current_admin_pass:
             session["logged_in"] = True
             session["username"] = username
             return redirect(url_for("dashboard"))
@@ -85,7 +97,11 @@ def api_get_keys():
                 "activated_at": k.activated_at.strftime("%Y-%m-%d %H:%M:%S") if k.activated_at else None,
                 "expires_at": k.expires_at.strftime("%Y-%m-%d %H:%M:%S") if k.expires_at else None,
                 "is_banned": k.is_banned,
-                "status": status
+                "status": status,
+                "traffic_limit": k.traffic_limit,
+                "traffic_used": k.traffic_used or 0,
+                "speed_limit": k.speed_limit,
+                "app_traffic_json": k.app_traffic_json
             })
         return jsonify(result)
     finally:
@@ -98,6 +114,8 @@ def api_create_key():
     key_str = data.get("key", "").strip()
     duration_type = data.get("duration_type", "days")  # days, hours, minutes, seconds
     duration_val = data.get("duration_val", 30)
+    traffic_limit_gb = data.get("traffic_limit_gb")
+    speed_limit = data.get("speed_limit")
 
     try:
         duration_val = int(duration_val)
@@ -137,11 +155,27 @@ def api_create_key():
                 if not existing:
                     break
         
+        traffic_limit_bytes = None
+        if traffic_limit_gb:
+            try:
+                traffic_limit_bytes = int(float(traffic_limit_gb) * 1024 * 1024 * 1024)
+            except ValueError:
+                return jsonify({"error": "Traffic limit must be a number."}), 400
+
+        speed_limit_int = None
+        if speed_limit:
+            try:
+                speed_limit_int = int(speed_limit)
+            except ValueError:
+                return jsonify({"error": "Speed limit must be an integer."}), 400
+
         new_key = ActivationKey(
             key=key_str,
             activation_days=activation_days,
             duration_seconds=duration_seconds,
-            is_banned=0
+            is_banned=0,
+            traffic_limit=traffic_limit_bytes,
+            speed_limit=speed_limit_int
         )
         db.add(new_key)
         db.commit()
@@ -167,7 +201,7 @@ def api_toggle_ban(key_id):
 
         # Kick client if banned
         if new_ban_state == 1 and key_item.client_pubkey:
-            remove_wg_peer(key_item.client_pubkey)
+            remove_wg_peer(key_item.client_pubkey, key_item.assigned_ip)
             cleanup_empty_peers()
             print(f"[WEB ADMIN] Key {key_item.key} banned. Connected client {key_item.client_pubkey} kicked.")
 
@@ -185,6 +219,7 @@ def api_unbind_device(key_id):
             return jsonify({"error": "Key not found."}), 404
         
         old_pubkey = key_item.client_pubkey
+        old_ip = key_item.assigned_ip
 
         # Clear active lease properties
         key_item.device_info = None
@@ -192,11 +227,12 @@ def api_unbind_device(key_id):
         key_item.assigned_ip = None
         key_item.activated_at = None
         key_item.expires_at = None
+        key_item.app_traffic_json = None
         db.commit()
 
         # Kick client if connected
         if old_pubkey:
-            remove_wg_peer(old_pubkey)
+            remove_wg_peer(old_pubkey, old_ip)
             cleanup_empty_peers()
             print(f"[WEB ADMIN] Key {key_item.key} unbound. Client {old_pubkey} kicked.")
 
@@ -214,19 +250,68 @@ def api_delete_key(key_id):
             return jsonify({"error": "Key not found."}), 404
         
         old_pubkey = key_item.client_pubkey
+        old_ip = key_item.assigned_ip
 
         db.delete(key_item)
         db.commit()
 
         # Kick client if connected
         if old_pubkey:
-            remove_wg_peer(old_pubkey)
+            remove_wg_peer(old_pubkey, old_ip)
             cleanup_empty_peers()
             print(f"[WEB ADMIN] Key deleted. Client {old_pubkey} kicked.")
 
         return jsonify({"status": "success"})
     finally:
         db.close()
+
+@app.route("/api/keys/<int:key_id>/update", methods=["POST"])
+@login_required
+def api_update_key(key_id):
+    data = request.json or {}
+    traffic_limit_gb = data.get("traffic_limit_gb")
+    speed_limit = data.get("speed_limit")
+
+    db = SessionLocal()
+    try:
+        key_item = db.query(ActivationKey).filter(ActivationKey.id == key_id).first()
+        if not key_item:
+            return jsonify({"error": "Key not found."}), 404
+
+        if traffic_limit_gb is not None:
+            if str(traffic_limit_gb).strip() == "" or float(traffic_limit_gb) == 0:
+                key_item.traffic_limit = None
+            else:
+                try:
+                    key_item.traffic_limit = int(float(traffic_limit_gb) * 1024 * 1024 * 1024)
+                except ValueError:
+                    return jsonify({"error": "Traffic limit must be a number."}), 400
+
+        if speed_limit is not None:
+            if str(speed_limit).strip() == "" or int(speed_limit) == 0:
+                key_item.speed_limit = None
+            else:
+                try:
+                    key_item.speed_limit = int(speed_limit)
+                except ValueError:
+                    return jsonify({"error": "Speed limit must be an integer."}), 400
+
+        # If client is connected, dynamically apply new speed limits instantly
+        if key_item.client_pubkey and key_item.assigned_ip:
+            register_wg_peer(key_item.client_pubkey, key_item.assigned_ip, key_item.speed_limit)
+
+        db.commit()
+        return jsonify({"status": "success"})
+    finally:
+        db.close()
+
+@app.route("/api/debug-code", methods=["GET"])
+@login_required
+def api_debug_code():
+    import time
+    current_minute = int(time.time() // 60)
+    code = generate_debug_code(current_minute)
+    return jsonify({"code": code})
 
 if __name__ == "__main__":
     init_db()

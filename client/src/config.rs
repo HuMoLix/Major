@@ -8,6 +8,11 @@ pub struct ActivationRequest {
     pub device_info: String,
 }
 
+#[derive(Serialize)]
+pub struct VerifyDebugRequest {
+    pub code: String,
+}
+
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 pub struct ActivationResponse {
@@ -23,4 +28,7 @@ pub struct DecryptedConfig {
     pub client_ip: String,
     pub dns: Vec<String>,
     pub expires_at: i64,
+    pub tls_endpoint: Option<String>,
+    pub traffic_limit: Option<u64>,
+    pub traffic_used: Option<u64>,
 }

@@ -8,6 +8,7 @@
 
 首先更新系统，并使用 `ufw`（Ubuntu 默认防火墙）放行所需的端口：
 - **TCP 8000**：FastAPI 激活服务
+- **TCP 8443**：TLS 混淆代理端口 (UDP-over-TLS)
 - **UDP 51820**：WireGuard 虚拟专用网通道
 
 ```bash
@@ -19,6 +20,7 @@ sudo apt install -y python3-pip python3-venv python3-full
 
 # 配置防火墙端口
 sudo ufw allow 8000/tcp
+sudo ufw allow 8443/tcp
 sudo ufw allow 51820/udp
 sudo ufw allow 22/tcp  # 确保放行 SSH 端口以免断开连接
 sudo ufw enable
@@ -118,6 +120,44 @@ sudo ufw enable
    sudo systemctl status vpn-api.service
    ```
    看到显示 `active (running)` 说明服务已经成功常驻运行。
+
+---
+
+## 第五步（续）：注册 TLS 混淆代理系统守护进程 (vpn-tls-proxy.service)
+
+为了让 TLS 代理在后台常驻运行以支持 UDP-over-TLS 功能，我们同样将其注册为 systemd 服务：
+
+1. 创建服务文件 `/etc/systemd/system/vpn-tls-proxy.service`：
+   ```bash
+   sudo nano /etc/systemd/system/vpn-tls-proxy.service
+   ```
+2. 写入以下配置：
+   ```ini
+   [Unit]
+   Description=Commercial VPN UDP-over-TLS Proxy Service
+   After=network.target vpn-api.service
+
+   [Service]
+   User=root
+   WorkingDirectory=/opt/vpn-server
+   ExecStart=/opt/vpn-server/.venv/bin/python tls_proxy.py --port 8443 --wg-host 127.0.0.1 --wg-port 51820
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+3. 保存并关闭文件。
+4. 重新加载系统服务并开启自启：
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable vpn-tls-proxy.service
+   sudo systemctl start vpn-tls-proxy.service
+   ```
+5. 检查 TLS 代理服务运行状态：
+   ```bash
+   sudo systemctl status vpn-tls-proxy.service
+   ```
 
 ---
 

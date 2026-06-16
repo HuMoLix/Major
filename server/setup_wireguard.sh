@@ -126,6 +126,7 @@ echo "[5/6] 写入配置文件 /etc/wireguard/wg0.conf..."
 cat > /etc/wireguard/wg0.conf <<EOF
 [Interface]
 Address = 10.0.0.1/24
+MTU = 1360
 SaveConfig = true
 ListenPort = 51820
 PrivateKey = $SERVER_PRIV_KEY

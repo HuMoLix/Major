@@ -506,6 +506,96 @@
             color: var(--text-muted);
             font-size: 13px;
         }
+
+        /* Modal Backdrop */
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 100; 
+            left: 0;
+            top: 0;
+            width: 100%; 
+            height: 100%; 
+            overflow: auto; 
+            background-color: rgba(15, 15, 15, 0.4); 
+            backdrop-filter: blur(2px);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 12px 24px rgba(15, 15, 15, 0.15);
+            max-width: 450px;
+            width: 100%;
+            padding: 24px;
+            position: relative;
+            animation: modal-open 0.2s ease;
+        }
+
+        @keyframes modal-open {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: var(--text-muted);
+        }
+
+        .modal-close:hover {
+            color: var(--text-main);
+        }
+
+        /* Progress Bar style */
+        .progress-container {
+            width: 100%;
+            background-color: var(--hover-bg);
+            border-radius: 4px;
+            height: 6px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: var(--accent-primary);
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* App list table in modal */
+        .app-list-table {
+            width: 100%;
+            margin-top: 10px;
+        }
+        .app-list-table th, .app-list-table td {
+            padding: 8px 10px;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -544,6 +634,10 @@
                 <div class="kpi-title">Expired Keys</div>
                 <div class="kpi-value" id="kpi-expired">0</div>
             </div>
+            <div class="kpi-card kpi-debug" style="border-top: 3px solid var(--accent-primary);">
+                <div class="kpi-title" style="color: var(--accent-primary); font-weight: 600;">Debug Code (1m)</div>
+                <div class="kpi-value" id="kpi-debug-code" style="letter-spacing: 1px; color: var(--accent-primary);">------</div>
+            </div>
         </div>
 
         <!-- Main Layout -->
@@ -568,6 +662,14 @@
                     <div class="form-group">
                         <label class="form-label" for="duration-val" id="duration-val-label">Value</label>
                         <input class="form-input" type="number" id="duration-val" value="30" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="traffic-limit">Traffic Limit (GB, Optional)</label>
+                        <input class="form-input" type="number" id="traffic-limit" placeholder="Unlimited" min="1" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="speed-limit">Speed Limit (Mbps, Optional)</label>
+                        <input class="form-input" type="number" id="speed-limit" placeholder="Unlimited" min="1">
                     </div>
                     <button type="submit" class="btn-primary">Generate</button>
                 </form>
@@ -596,6 +698,8 @@
                                 <th>Key</th>
                                 <th>Duration</th>
                                 <th>Status</th>
+                                <th>Traffic Usage</th>
+                                <th>Speed Limit</th>
                                 <th>Client Details</th>
                                 <th>Expiration</th>
                                 <th>Actions</th>
@@ -609,6 +713,51 @@
                         No keys match criteria.
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Key Limits Modal -->
+    <div id="edit-limits-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="edit-modal-title">Edit Limits</div>
+                <button class="modal-close" onclick="closeModal('edit-limits-modal')">×</button>
+            </div>
+            <form id="edit-limits-form">
+                <input type="hidden" id="edit-key-id">
+                <div class="form-group">
+                    <label class="form-label" for="edit-traffic-limit">Traffic Limit (GB, 0 or Blank for Unlimited)</label>
+                    <input class="form-input" type="number" id="edit-traffic-limit" min="0" step="0.1">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="edit-speed-limit">Speed Limit (Mbps, 0 or Blank for Unlimited)</label>
+                    <input class="form-input" type="number" id="edit-speed-limit" min="0">
+                </div>
+                <button type="submit" class="btn-primary">Save Changes</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- App Traffic Details Modal -->
+    <div id="app-traffic-modal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <div class="modal-title" id="app-modal-title">App Traffic Stats</div>
+                <button class="modal-close" onclick="closeModal('app-traffic-modal')">×</button>
+            </div>
+            <div class="table-responsive" style="max-height: 350px;">
+                <table class="app-list-table">
+                    <thead>
+                        <tr>
+                            <th>Application</th>
+                            <th style="text-align: right;">Traffic</th>
+                        </tr>
+                    </thead>
+                    <tbody id="app-traffic-table-body">
+                        <!-- Populated dynamically -->
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -689,6 +838,15 @@
             renderTable();
         }
 
+        // Helper to format bytes
+        function formatBytes(bytes) {
+            if (bytes === 0 || !bytes) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
         // Render table DOM rows
         function renderTable() {
             const tbody = document.getElementById('keys-table-body');
@@ -731,6 +889,31 @@
                     }
                 }
 
+                // Traffic formatting
+                let trafficText = '';
+                if (k.traffic_limit) {
+                    const pct = Math.min(100, Math.round((k.traffic_used / k.traffic_limit) * 100));
+                    trafficText = `
+                        <div style="font-size:12px; font-weight:500; white-space:nowrap;">${formatBytes(k.traffic_used)} / ${formatBytes(k.traffic_limit)}</div>
+                        <div class="progress-container">
+                            <div class="progress-bar" style="width: ${pct}%; background-color: ${pct >= 90 ? 'var(--danger)' : 'var(--accent-primary)'}"></div>
+                        </div>
+                    `;
+                } else {
+                    trafficText = `<div style="font-size:12px; font-weight:500; white-space:nowrap;">${formatBytes(k.traffic_used)} / Unlimited</div>`;
+                }
+
+                // Speed formatting
+                let speedText = k.speed_limit 
+                    ? `<span class="badge" style="background: rgba(0, 121, 255, 0.08); color: var(--accent-primary); font-weight: 600; white-space:nowrap;">${k.speed_limit} Mbps</span>` 
+                    : '<span class="badge" style="background: var(--hover-bg); color: var(--text-muted); white-space:nowrap;">Unlimited</span>';
+
+                // App stats button
+                let appStatsBtn = '';
+                if (k.app_traffic_json) {
+                    appStatsBtn = `<button class="btn-action" style="margin-top: 6px; font-size:11px; padding: 2px 6px;" onclick="showAppTraffic(${k.id}, '${k.key}', '${encodeURIComponent(k.app_traffic_json)}')">📊 Apps</button>`;
+                }
+
                 // Client Details formatting
                 let clientDetails = `<div class="empty-state" style="padding: 0; text-align: left; font-size:12px;">Unbound</div>`;
                 if (k.device_info) {
@@ -738,6 +921,7 @@
                         <div class="client-info">IP: <strong>${k.assigned_ip || 'N/A'}</strong></div>
                         <div class="client-info" style="font-size:11px;" title="${k.device_info}">Device: <strong>${k.device_info.substring(0, 12)}...</strong></div>
                         <div class="client-info" style="font-size:11px;" title="${k.client_pubkey}">Pubkey: <strong>${k.client_pubkey ? k.client_pubkey.substring(0, 12) + '...' : 'N/A'}</strong></div>
+                        ${appStatsBtn}
                     `;
                 }
 
@@ -756,15 +940,18 @@
                     <td><span class="key-text">${k.key}</span></td>
                     <td>${durationText}</td>
                     <td><span class="${badgeClass}">${k.status}</span></td>
+                    <td>${trafficText}</td>
+                    <td>${speedText}</td>
                     <td>${clientDetails}</td>
                     <td>
                         <div style="font-size: 12px; font-weight: 500;">${k.expires_at ? k.expires_at : 'Never'}</div>
                         <div style="font-size: 11px; color: var(--text-muted); margin-top:2px;">${k.activated_at ? 'Activated: ' + k.activated_at.substring(0,10) : 'Inactive'}</div>
                     </td>
                     <td>
-                        <div class="actions-cell">
+                        <div class="actions-cell" style="flex-wrap: wrap; max-width: 140px;">
                             <button class="${banBtnClass}" onclick="toggleBan(${k.id}, '${k.key}', ${k.is_banned})">${banBtnText}</button>
                             ${unbindBtn}
+                            <button class="btn-action" onclick="openEditModal(${k.id}, '${k.key}', ${k.traffic_limit}, ${k.speed_limit})">Edit</button>
                             <button class="btn-action btn-delete" onclick="deleteKey(${k.id}, '${k.key}')">Delete</button>
                         </div>
                     </td>
@@ -779,11 +966,15 @@
             const keyInput = document.getElementById('custom-key');
             const typeSelect = document.getElementById('duration-type');
             const valInput = document.getElementById('duration-val');
+            const trafficInput = document.getElementById('traffic-limit');
+            const speedInput = document.getElementById('speed-limit');
 
             const payload = {
                 key: keyInput.value.trim(),
                 duration_type: typeSelect.value,
-                duration_val: valInput.value
+                duration_val: valInput.value,
+                traffic_limit_gb: trafficInput.value ? parseFloat(trafficInput.value) : null,
+                speed_limit: speedInput.value ? parseInt(speedInput.value) : null
             };
 
             try {
@@ -798,6 +989,8 @@
                 
                 showToast(`Generated: ${resData.key}`, 'success');
                 keyInput.value = '';
+                trafficInput.value = '';
+                speedInput.value = '';
                 fetchKeys();
             } catch (err) {
                 showToast(err.message, 'error');
@@ -854,12 +1047,105 @@
             }
         }
 
+        // Modal Helpers
+        function openEditModal(id, keyName, trafficLimit, speedLimit) {
+            document.getElementById('edit-key-id').value = id;
+            document.getElementById('edit-modal-title').textContent = `Edit Limits for: ${keyName}`;
+            
+            // Set fields (convert trafficLimit from bytes back to GB)
+            const trafficLimitGb = trafficLimit ? (trafficLimit / (1024 * 1024 * 1024)).toFixed(2) : '';
+            document.getElementById('edit-traffic-limit').value = trafficLimitGb;
+            document.getElementById('edit-speed-limit').value = speedLimit ? speedLimit : '';
+            
+            document.getElementById('edit-limits-modal').classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        // Submit Edit Limits Form
+        document.getElementById('edit-limits-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('edit-key-id').value;
+            const trafficLimitGb = document.getElementById('edit-traffic-limit').value;
+            const speedLimit = document.getElementById('edit-speed-limit').value;
+
+            const payload = {
+                traffic_limit_gb: trafficLimitGb !== "" ? parseFloat(trafficLimitGb) : 0,
+                speed_limit: speedLimit !== "" ? parseInt(speedLimit) : 0
+            };
+
+            try {
+                const response = await fetch(`/api/keys/${id}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const resData = await response.json();
+                if (!response.ok) throw new Error(resData.error || 'Failed to update key');
+                
+                showToast('Limits updated successfully!', 'success');
+                closeModal('edit-limits-modal');
+                fetchKeys();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        });
+
+        // Show Application traffic popup
+        function showAppTraffic(id, keyName, encodedJson) {
+            const rawJson = decodeURIComponent(encodedJson);
+            const appList = JSON.parse(rawJson);
+            
+            document.getElementById('app-modal-title').textContent = `App Usage for: ${keyName}`;
+            const tbody = document.getElementById('app-traffic-table-body');
+            tbody.innerHTML = '';
+            
+            if (!appList || appList.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="2" class="empty-state">No app traffic data reported yet.</td></tr>';
+            } else {
+                appList.forEach(item => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-weight: 500; font-family: monospace;">${item.app}</td>
+                        <td style="text-align: right; font-weight: 600; color: var(--accent-primary);">${formatBytes(item.bytes)}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+            
+            document.getElementById('app-traffic-modal').classList.add('show');
+        }
+
+        async function fetchDebugCode() {
+            try {
+                const response = await fetch('/api/debug-code');
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('kpi-debug-code').textContent = data.code;
+                }
+            } catch (err) {
+                console.error("Failed to fetch debug code", err);
+            }
+        }
+
         // Initialize and setup polling
         window.addEventListener('DOMContentLoaded', () => {
             fetchKeys();
+            fetchDebugCode();
             // Poll for updates every 10 seconds to keep stats fresh
             setInterval(fetchKeys, 10000);
+            setInterval(fetchDebugCode, 20000);
         });
+
+        // Close modal when clicking outside of modal-content
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.classList.remove('show');
+            }
+        }
     </script>
 </body>
 </html>

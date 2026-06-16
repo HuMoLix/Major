@@ -36,6 +36,10 @@ class ActivationKey(Base):
     expires_at = Column(DateTime, nullable=True)
     is_banned = Column(Integer, default=0) # 0 = normal, 1 = banned
     duration_seconds = Column(Integer, nullable=True) # Custom duration in seconds (optional)
+    traffic_limit = Column(Integer, nullable=True) # in bytes (optional)
+    traffic_used = Column(Integer, default=0) # in bytes
+    speed_limit = Column(Integer, nullable=True) # in Mbps (optional)
+    app_traffic_json = Column(String, nullable=True) # JSON string of Top 10 app traffic
 
     def is_active(self) -> bool:
         if self.is_banned == 1:
@@ -45,11 +49,14 @@ class ActivationKey(Base):
             return True
         if self.expires_at is None:
             return False
+        # Also check traffic limit if present
+        if self.traffic_limit is not None and self.traffic_used >= self.traffic_limit:
+            return False
         return datetime.datetime.utcnow() < self.expires_at
 
 def init_db():
     Base.metadata.create_all(bind=engine)
-    # 动态执行数据库迁移以增加 is_banned 和 duration_seconds 字段 (防止数据库已存在时报错)
+    # 动态执行数据库迁移以增加新字段 (防止数据库已存在时报错)
     try:
         with engine.begin() as conn:
             result = conn.exec_driver_sql("PRAGMA table_info(activation_keys)").fetchall()
@@ -60,6 +67,18 @@ def init_db():
             if "duration_seconds" not in columns:
                 conn.exec_driver_sql("ALTER TABLE activation_keys ADD COLUMN duration_seconds INTEGER")
                 print("[DB] Successfully migrated database to add duration_seconds column.")
+            if "traffic_limit" not in columns:
+                conn.exec_driver_sql("ALTER TABLE activation_keys ADD COLUMN traffic_limit INTEGER")
+                print("[DB] Successfully migrated database to add traffic_limit column.")
+            if "traffic_used" not in columns:
+                conn.exec_driver_sql("ALTER TABLE activation_keys ADD COLUMN traffic_used INTEGER DEFAULT 0")
+                print("[DB] Successfully migrated database to add traffic_used column.")
+            if "speed_limit" not in columns:
+                conn.exec_driver_sql("ALTER TABLE activation_keys ADD COLUMN speed_limit INTEGER")
+                print("[DB] Successfully migrated database to add speed_limit column.")
+            if "app_traffic_json" not in columns:
+                conn.exec_driver_sql("ALTER TABLE activation_keys ADD COLUMN app_traffic_json TEXT")
+                print("[DB] Successfully migrated database to add app_traffic_json column.")
     except Exception as e:
         print(f"[DB MIGRATION WARNING] {e}")
 
@@ -67,10 +86,13 @@ def get_db():
     db = SessionLocal()
     try:
         db.execute(Base.metadata.tables["activation_keys"].select())  # Just checks connectivity
-        yield db
     except Exception:
         # Re-initialize database if tables are missing or schema changed
-        init_db()
+        try:
+            init_db()
+        except Exception as e:
+            print(f"[DB INIT ERROR] {e}")
+    try:
         yield db
     finally:
         db.close()

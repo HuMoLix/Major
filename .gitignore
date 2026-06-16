@@ -63,3 +63,4 @@ instance/
 server/vpn.db*
 client/wintun.dll
 client/release/
+Gemini.md
